@@ -1,0 +1,55 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pub-deployment
+  labels:
+    app: pub
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pub
+  template:
+    metadata:
+      labels:
+        app: pub
+    spec:
+      containers:
+      - name: pub
+        image: bagoulla/zmq:1.0.1
+        command: ["pubsub", "pub", "0.0.0.0"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pub
+spec:
+  selector:
+    app: pub
+  ports:
+    - protocol: TCP
+      port: 4567
+      targetPort: 4567
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sub-deployment
+  labels:
+    app: sub
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sub
+  template:
+    metadata:
+      labels:
+        app: sub
+    spec:
+      containers:
+      - name: sub
+        image: bagoulla/zmq:1.0.1
+        command: ["pubsub", "sub", "pub"]
+---
