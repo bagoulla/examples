@@ -1,0 +1,114 @@
+- hosts: all
+  become: yes
+  tasks:
+   - name: restart network
+     service:
+       name: network
+       state: restarted
+
+   - name: Disable SWAP since kubernetes can't work with swap enabled (1/2)
+     shell: |
+       swapoff -a
+
+   - name: Disable SWAP in fstab since kubernetes can't work with swap enabled (2/2)
+     replace:
+       path: /etc/fstab
+       regexp: '^(.*\sswap\s.*)$'
+       replace: '# \1'
+
+   - name: Ensure group "docker" exists
+     group:
+       name: docker
+       state: present
+
+   - name: install Docker
+     yum:
+       name: docker
+       state: present
+       update_cache: true
+
+   - name: start Docker
+     service:
+       name: docker
+       state: started
+
+   - name: Stop and disable firewalld.
+     service:
+       name: firewalld
+       state: stopped
+       enabled: False
+
+   - name: enable service docker
+     systemd:
+       name: docker
+       enabled: yes
+
+   - name: disable SELinux
+     command: setenforce 0
+     when: ansible_selinux is defined and ansible_selinux != False and ansible_selinux.status == 'enabled'
+
+   - name: disable SELinux on reboot
+     selinux:
+       state: disabled
+
+   - name: ensure net.bridge.bridge-nf-call-ip6tables is set to 1
+     sysctl:
+      name: net.bridge.bridge-nf-call-ip6tables
+      value: 1
+      state: present
+
+   - name: ensure net.bridge.bridge-nf-call-iptables is set to 1
+     sysctl:
+      name: net.bridge.bridge-nf-call-iptables
+      value: 1
+      state: present
+
+   - name: add Kubernetes' YUM repository
+     yum_repository:
+      name: Kubernetes
+      description: Kubernetes YUM repository
+      baseurl: https://packages.cloud.google.com/yum/repos/kubernetes-el7-x86_64
+      gpgkey: https://packages.cloud.google.com/yum/doc/yum-key.gpg https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
+      gpgcheck: yes
+
+   - name: install kubelet
+     yum:
+        name: kubelet-1.18.0
+        state: present
+        update_cache: true
+ 
+   - name: install kubeadm
+     yum:
+        name: kubeadm-1.18.0
+        state: present
+ 
+   - name: ensure overlay driver is on at boot
+     copy:
+       content: "overlay"
+       dest: /etc/modules-load.d/dockerfs
+
+   - name: Find local IP Addr
+     set_fact:
+        man_ip: "{{ item }}"
+     with_items: "{{ ansible_all_ipv4_addresses }}"
+     when: "item.startswith('192.168.')"
+
+   - name: Set the kubelet bind address
+     copy:
+       content='KUBELET_EXTRA_ARGS=" --node-ip={{ man_ip }} "\n'
+       dest=/etc/sysconfig/kubelet
+
+   - name: start kubelet
+     service:
+       name: kubelet
+       enabled: yes
+       state: restarted
+ 
+- hosts: master
+  become: yes
+  tasks:
+   - name: install kubectl
+     yum:
+        name: kubectl-1.18.0
+        state: present
+        allow_downgrade: yes

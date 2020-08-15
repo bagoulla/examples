@@ -1,0 +1,68 @@
+
+Vagrant.configure("2") do |config|
+
+  config.vm.box = "generic/centos7"
+  config.vm.box_url = "generic/centos7"
+  config.vm.provider "virtualbox" do |v|
+    v.memory = 4096
+    v.cpus = 2
+  end
+
+
+  N = 3
+  (1..N).each do |machine_id|
+    config.vm.define "node#{machine_id}" do |machine|
+      machine.vm.hostname = "node#{machine_id}"
+      machine.vm.network "public_network", bridge: "enp27s0"
+      # delete default gw on eth0
+      machine.vm.provision "shell" do |s|
+        s.inline = "eval `route -n | awk '{ if ($8 ==\"eth0\" && $2 != \"0.0.0.0\") print \"route del default gw \" $2; }'`"
+        s.privileged = true
+      end
+
+      machine.ssh.forward_agent = true
+      machine.ssh.forward_x11 = true
+
+      machine.vm.provision "file", source: "./vlans/node#{machine_id}/.", destination: "~/"
+      machine.vm.synced_folder ".", "/vagrant", type: "virtualbox"
+
+      machine.vm.provision "shell" do |s|
+        s.inline = "cp ifcfg-eth1.100 ifcfg-eth1.200 /etc/sysconfig/network-scripts/"
+        s.privileged = true
+      end
+  
+      if machine_id == 1
+        machine.vm.network :forwarded_port, host: 6443, guest: 6443
+      end
+
+      # Only execute once the Ansible provisioner,
+      # when all the machines are up and ready.
+      if machine_id == N
+        # Three playbooks
+        # First install things on all hosts
+        machine.vm.provision "ansible" do |ansible|
+          ansible.limit = "all"
+          ansible.groups = { "master" => ["node1"], "workers" => ["node2", "node3"] }
+          ansible.playbook = "kube-dependencies.yml"
+          ansible.compatibility_mode = "2.0"
+        end
+  
+        # Setup kubernetes on master host
+        machine.vm.provision "ansible" do |ansible|
+          ansible.limit = "all"
+          ansible.groups = { "master" => ["node1"], "workers" => ["node2", "node3"] }
+          ansible.playbook = "master.yml"
+          ansible.compatibility_mode = "2.0"
+        end
+  
+        # Have workers join
+        machine.vm.provision "ansible" do |ansible|
+          ansible.limit = "all"
+          ansible.groups = { "master" => ["node1"], "workers" => ["node2", "node3"] }
+          ansible.playbook = "join-workers.yml"
+          ansible.compatibility_mode = "2.0"
+        end
+      end
+    end
+  end
+end
