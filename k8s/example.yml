@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: pub
-        image: bagoulla/zmq:1.0.1
+        image: bagoulla/zmq:latest
         command: ["pubsub", "pub", "0.0.0.0"]
 ---
 apiVersion: v1
@@ -50,6 +50,6 @@ spec:
     spec:
       containers:
       - name: sub
-        image: bagoulla/zmq:1.0.1
+        image: bagoulla/zmq:latest
         command: ["pubsub", "sub", "pub"]
 ---
